@@ -77,7 +77,9 @@ class SChart extends HTMLElement {
       if (!entry.points.length) {
         return;
       }
-      const { points, xMin, xMax, yMin, yMax } = entry;
+      const { points, includeX, yMin, yMax } = entry;
+      const xMin = includeX ? entry.xMin : 0;
+      const xMax = includeX ? entry.xMax : Math.max(1, points.length - 1);
 
       ctx.strokeStyle = colors[seriesIndex % colors.length];
       ctx.lineWidth = 2;

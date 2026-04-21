@@ -4,6 +4,7 @@ import { streamCharts } from "./client-core.js";
 const subscriptions = [
   {
     key: "alpha",
+    includeX: true,
     xMin: 0,
     xMax: 100,
     xBits: 16,
@@ -13,9 +14,6 @@ const subscriptions = [
   },
   {
     key: "beta",
-    xMin: 0,
-    xMax: 100,
-    xBits: 16,
     yMin: -2,
     yMax: 2,
     yBits: 16

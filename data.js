@@ -1,6 +1,5 @@
 export function generateSeriesPoints(subscription, tick, sampleCount) {
   const points = [];
-  const span = subscription.xMax - subscription.xMin || 1;
   const phase = tick / 6;
   const center = (subscription.yMin + subscription.yMax) / 2;
   const amplitude = (subscription.yMax - subscription.yMin) * 0.42;
@@ -11,7 +10,9 @@ export function generateSeriesPoints(subscription, tick, sampleCount) {
 
   for (let i = 0; i < sampleCount; i += 1) {
     const t = sampleCount <= 1 ? 0 : i / (sampleCount - 1);
-    const x = subscription.xMin + (span * t);
+    const x = subscription.includeX === true
+      ? subscription.xMin + ((subscription.xMax - subscription.xMin || 1) * t)
+      : i;
     const wave = Math.sin((t * Math.PI * 2 * frequency) + phase);
     const wobble = Math.cos((t * Math.PI * 8) - (phase * 0.7)) * amplitude * 0.16;
     points.push({

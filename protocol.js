@@ -1,5 +1,7 @@
 export const MESSAGE_SUBSCRIBE = 0;
 export const MESSAGE_DATA = 1;
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -77,11 +79,15 @@ class BitReader {
 export function encodeSubscribe(items) {
   let size = 1 + 4;
   for (const item of items) {
-    const keyBytes = new TextEncoder().encode(item.key);
+    const includeX = item.includeX === true;
+    const keyBytes = textEncoder.encode(item.key);
     if (keyBytes.length > 255) {
       throw new RangeError(`Key too long: ${item.key}`);
     }
-    size += 1 + keyBytes.length + 8 + 8 + 1 + 8 + 8 + 1;
+    size += 1 + keyBytes.length + 1 + 8 + 8 + 1;
+    if (includeX) {
+      size += 8 + 8 + 1;
+    }
   }
 
   const bytes = new Uint8Array(size);
@@ -94,17 +100,22 @@ export function encodeSubscribe(items) {
   offset += 4;
 
   for (const item of items) {
-    const keyBytes = new TextEncoder().encode(item.key);
+    const includeX = item.includeX === true;
+    const keyBytes = textEncoder.encode(item.key);
     view.setUint8(offset, keyBytes.length);
     offset += 1;
     bytes.set(keyBytes, offset);
     offset += keyBytes.length;
-    view.setFloat64(offset, item.xMin, true);
-    offset += 8;
-    view.setFloat64(offset, item.xMax, true);
-    offset += 8;
-    view.setUint8(offset, item.xBits);
+    view.setUint8(offset, includeX ? 1 : 0);
     offset += 1;
+    if (includeX) {
+      view.setFloat64(offset, item.xMin, true);
+      offset += 8;
+      view.setFloat64(offset, item.xMax, true);
+      offset += 8;
+      view.setUint8(offset, item.xBits);
+      offset += 1;
+    }
     view.setFloat64(offset, item.yMin, true);
     offset += 8;
     view.setFloat64(offset, item.yMax, true);
@@ -135,27 +146,35 @@ export function decodeSubscribe(bytes) {
     offset += 1;
     const keyBytes = bytes.slice(offset, offset + keyLength);
     offset += keyLength;
-    items.push({
-      key: new TextDecoder().decode(keyBytes),
-      xMin: view.getFloat64(offset, true),
-      xMax: view.getFloat64(offset + 8, true),
-      xBits: view.getUint8(offset + 16),
-      yMin: view.getFloat64(offset + 17, true),
-      yMax: view.getFloat64(offset + 25, true),
-      yBits: view.getUint8(offset + 33)
-    });
-    offset += 34;
+    const includeX = view.getUint8(offset) === 1;
+    offset += 1;
+    const item = {
+      key: textDecoder.decode(keyBytes),
+      includeX
+    };
+    if (includeX) {
+      item.xMin = view.getFloat64(offset, true);
+      item.xMax = view.getFloat64(offset + 8, true);
+      item.xBits = view.getUint8(offset + 16);
+      offset += 17;
+    }
+    item.yMin = view.getFloat64(offset, true);
+    item.yMax = view.getFloat64(offset + 8, true);
+    item.yBits = view.getUint8(offset + 16);
+    offset += 17;
+    items.push(item);
   }
 
   return items;
 }
 
-export function encodeDataMessage(subscription, index, points, interleaved = true) {
-  const bitsPerSample = interleaved ? (subscription.xBits + subscription.yBits) : subscription.yBits;
+export function encodeDataMessage(subscription, index, points) {
+  const includeX = subscription.includeX === true;
+  const bitsPerSample = includeX ? (subscription.xBits + subscription.yBits) : subscription.yBits;
   const writer = new BitWriter(points.length * bitsPerSample);
 
   for (const point of points) {
-    if (interleaved) {
+    if (includeX) {
       writer.write(quantize(point.x, subscription.xMin, subscription.xMax, subscription.xBits), subscription.xBits);
     }
     writer.write(quantize(point.y, subscription.yMin, subscription.yMax, subscription.yBits), subscription.yBits);
@@ -168,7 +187,7 @@ export function encodeDataMessage(subscription, index, points, interleaved = tru
   view.setUint8(0, MESSAGE_DATA);
   view.setUint32(1, index, true);
   view.setUint32(5, points.length, true);
-  view.setUint8(9, interleaved ? 1 : 0);
+  view.setUint8(9, includeX ? 1 : 0);
   bytes.set(payload, 10);
 
   return bytes;
@@ -183,7 +202,7 @@ export function decodeDataMessage(bytes, subscriptions) {
 
   const index = view.getUint32(1, true);
   const sampleCount = view.getUint32(5, true);
-  const interleaved = view.getUint8(9) === 1;
+  const includeX = view.getUint8(9) === 1;
   const subscription = subscriptions[index];
   if (!subscription) {
     throw new Error(`Unknown subscription index: ${index}`);
@@ -192,9 +211,9 @@ export function decodeDataMessage(bytes, subscriptions) {
   const reader = new BitReader(bytes.slice(10));
   const points = [];
   for (let i = 0; i < sampleCount; i += 1) {
-    const x = interleaved
+    const x = includeX
       ? dequantize(reader.read(subscription.xBits), subscription.xMin, subscription.xMax, subscription.xBits)
-      : subscription.xMin + ((subscription.xMax - subscription.xMin) * i) / Math.max(1, sampleCount - 1);
+      : i;
     const y = dequantize(reader.read(subscription.yBits), subscription.yMin, subscription.yMax, subscription.yBits);
     points.push({ x, y });
   }
@@ -202,7 +221,7 @@ export function decodeDataMessage(bytes, subscriptions) {
   return {
     index,
     key: subscription.key,
-    interleaved,
+    includeX,
     points
   };
 }

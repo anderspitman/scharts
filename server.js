@@ -48,14 +48,19 @@ function validateSubscription(item) {
   if (!/^[A-Za-z0-9_-]+$/.test(item.key)) {
     throw new Error(`Invalid key: ${item.key}`);
   }
-  if (!Number.isFinite(item.xMin) || !Number.isFinite(item.xMax) || item.xMin >= item.xMax) {
-    throw new Error(`Invalid x range for ${item.key}`);
-  }
   if (!Number.isFinite(item.yMin) || !Number.isFinite(item.yMax) || item.yMin >= item.yMax) {
     throw new Error(`Invalid y range for ${item.key}`);
   }
-  if (item.xBits < 1 || item.xBits > 32 || item.yBits < 1 || item.yBits > 32) {
+  if (item.yBits < 1 || item.yBits > 32) {
     throw new Error(`Invalid bit width for ${item.key}`);
+  }
+  if (item.includeX === true) {
+    if (!Number.isFinite(item.xMin) || !Number.isFinite(item.xMax) || item.xMin >= item.xMax) {
+      throw new Error(`Invalid x range for ${item.key}`);
+    }
+    if (item.xBits < 1 || item.xBits > 32) {
+      throw new Error(`Invalid x bit width for ${item.key}`);
+    }
   }
 }
 
@@ -84,7 +89,7 @@ function streamData(req, res) {
       const sendBatch = () => {
         subscriptions.forEach((subscription, index) => {
           const points = generateSeriesPoints(subscription, tick + index * 3, 96);
-          const message = encodeDataMessage(subscription, index, points, false);
+          const message = encodeDataMessage(subscription, index, points);
           res.write(Buffer.from(frameMessage(message)));
         });
         tick += 1;

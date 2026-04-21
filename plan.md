@@ -38,9 +38,11 @@ Each member of the list has this info:
 ```
 Data key length (8 bits) - N (max 255 characters in a key)
 Data key value (N*8 bits) - ASCII string of data key
-xMin (64 bits) - float64
-xMax (64 bits) - float64
-xBits (8 bits) - uint8 number of bits per data value
+includeX (8 bits) - boolean. indicates if X values are included
+if includeX:
+  xMin (64 bits) - float64
+  xMax (64 bits) - float64
+  xBits (8 bits) - uint8 number of bits per data value
 yMin (64 bits) - float64
 yMax (64 bits) - float64
 yBits (8 bits) - uint8 number of bits per data value
@@ -56,7 +58,7 @@ Producer data messages have the following format:
 Message type (8 bits) - uint8 1 (DATA)
 Data index (32 bits) - uint32 corresponding to ordinal data key
 Sample count (32 bits) - uint32 number of packed samples
-Interleaved (8 bits) - boolean. indicates if X values are included
+includeX (8 bits) - boolean. indicates if X values are included
 Packed data array (N bits)
 ```
 
@@ -66,13 +68,13 @@ range should be clamped. -Inf/Inf should be clamped. NaN should be mapped to
 -Inf. In practice, it's expected that charts will not display the min and max
 values, so things still look good even with spurious values. Round to nearest.
 
-Same for xBits, but that's only used if interleaved is true.
+Same for xBits, but that's only used if includeX is true.
 
 Pack sub-bytes MSB first.
 
 Zero pad any extra bytes.
 
-When interleaved, packed values are ordered x0, y0, x1, y1, ...
+When includeX, packed values are ordered x0, y0, x1, y1, ...
 
 
 ## Transport

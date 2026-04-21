@@ -39,5 +39,6 @@ PORT=9000 npm run client:node
 
 ## Notes
 
-- The reference line-chart stream sends only quantized `y` values with `interleaved = 0`.
-- Clients reconstruct evenly spaced `x` positions from the subscribed `xMin` and `xMax` range.
+- Each subscribe item includes `includeX` as a client-controlled boolean.
+- When `includeX` is omitted or `false`, the subscribe item only needs `key`, `yMin`, `yMax`, and `yBits`.
+- When `includeX` is `true`, the subscribe item must also provide `xMin`, `xMax`, and `xBits`, and the producer includes explicit X samples in each data message.

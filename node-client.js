@@ -11,18 +11,12 @@ const SERIES_COLORS = [
 const subscriptions = [
   {
     key: "alpha",
-    xMin: 0,
-    xMax: 80,
-    xBits: 16,
     yMin: -2,
     yMax: 2,
     yBits: 16
   },
   {
     key: "beta",
-    xMin: 0,
-    xMax: 80,
-    xBits: 16,
     yMin: -2,
     yMax: 2,
     yBits: 16
