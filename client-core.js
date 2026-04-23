@@ -12,9 +12,10 @@ function concatBytes(a, b) {
 }
 
 export async function streamCharts({ url, items, onMessage, signal }) {
-  const startedAt = Date.now();
+  const bitrateWindowMs = 1000;
   let bytesReceived = 0;
   let messageCount = 0;
+  const bitrateSamples = [];
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -45,10 +46,21 @@ export async function streamCharts({ url, items, onMessage, signal }) {
     remainder = concatBytes(remainder, value);
     const extracted = extractFrames(remainder);
     remainder = extracted.remainder;
-    const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.001);
+    const now = Date.now();
+    bitrateSamples.push({
+      timeMs: now,
+      bytesReceived
+    });
+    while (bitrateSamples.length > 1 && (now - bitrateSamples[0].timeMs) > bitrateWindowMs) {
+      bitrateSamples.shift();
+    }
+
+    const oldestSample = bitrateSamples[0];
+    const windowMs = Math.max(now - oldestSample.timeMs, 1);
+    const windowBytes = bytesReceived - oldestSample.bytesReceived;
     const stats = {
       bytesReceived,
-      bitrateBps: (bytesReceived * 8) / elapsedSeconds,
+      bitrateBps: (windowBytes * 8000) / windowMs,
       messageCount
     };
 

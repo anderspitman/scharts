@@ -22,7 +22,7 @@ const subscriptions = [
     persistent: true,
     opacity: 0.1,
     viewXMin: 0,
-    viewXMax: 60000,
+    viewXMax: 3000000000,
     viewYMin: -0.1,
     viewYMax: 1.1
   })
