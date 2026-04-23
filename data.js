@@ -16,77 +16,29 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function sampleClusteredY(subscription, random) {
+function sampleClusteredY(dataset, random) {
   const clusters = [0, 0.5, 1];
   const center = clusters[Math.floor(random() * clusters.length)];
   const noise = (((random() + random() + random()) / 3) - 0.5) * 0.12;
-  return clamp(center + noise, subscription.yMin, subscription.yMax);
+  return clamp(center + noise, dataset.yMin, dataset.yMax);
 }
 
-function createGapSegments(subscription, random) {
-  const span = subscription.xMax - subscription.xMin;
-  const gapCount = 7;
-  const gaps = [];
-
-  while (gaps.length < gapCount) {
-    const width = span * (0.015 + (random() * 0.03));
-    const start = subscription.xMin + (random() * (span - width));
-    const end = start + width;
-    const overlaps = gaps.some((gap) => !(end <= gap.start || start >= gap.end));
-    if (!overlaps) {
-      gaps.push({ start, end });
-    }
-  }
-
-  gaps.sort((a, b) => a.start - b.start);
-  const segments = [];
-  let cursor = subscription.xMin;
-  for (const gap of gaps) {
-    if (gap.start > cursor) {
-      segments.push({ start: cursor, end: gap.start });
-    }
-    cursor = gap.end;
-  }
-  if (cursor < subscription.xMax) {
-    segments.push({ start: cursor, end: subscription.xMax });
-  }
-
-  return segments;
-}
-
-function projectIntoSegments(position, segments) {
-  let remaining = position;
-  for (const segment of segments) {
-    const width = segment.end - segment.start;
-    if (remaining <= width) {
-      return segment.start + remaining;
-    }
-    remaining -= width;
-  }
-  return segments[segments.length - 1].end;
-}
-
-function createScatterBatches(subscription, batchCount = 600) {
-  const random = createRng(createSeed(subscription.key));
-  const span = subscription.xMax - subscription.xMin;
+function createScatterBatches(dataset, batchCount = 600) {
+  const random = createRng(createSeed(dataset.key));
+  const span = dataset.xMax - dataset.xMin;
   const targetTotal = Math.max(1, Math.round(span / 100));
-  const segments = createGapSegments(subscription, random);
-  const availableSpan = segments.reduce((sum, segment) => sum + (segment.end - segment.start), 0);
   const batches = Array.from({ length: batchCount }, () => []);
 
   for (let index = 0; index < targetTotal; index += 1) {
-    const base = ((index + 0.5) / targetTotal) * availableSpan;
-    const jitter = ((random() - 0.5) * availableSpan) / targetTotal * 0.7;
-    const x = clamp(
-      projectIntoSegments(clamp(base + jitter, 0, availableSpan), segments),
-      subscription.xMin,
-      subscription.xMax
-    );
-    const normalized = (x - subscription.xMin) / (span || 1);
+    const t = targetTotal <= 1 ? 0.5 : index / (targetTotal - 1);
+    const step = span / Math.max(1, targetTotal - 1);
+    const jitter = (random() - 0.5) * step * 0.35;
+    const x = clamp(dataset.xMin + (t * span) + jitter, dataset.xMin, dataset.xMax);
+    const normalized = (x - dataset.xMin) / (span || 1);
     const batchIndex = clamp(Math.floor(normalized * batchCount), 0, batchCount - 1);
     batches[batchIndex].push({
       x,
-      y: sampleClusteredY(subscription, random)
+      y: sampleClusteredY(dataset, random)
     });
   }
 
@@ -95,44 +47,42 @@ function createScatterBatches(subscription, batchCount = 600) {
   return batches;
 }
 
-export function createSeriesState(subscription) {
-  if (subscription.key === "alpha") {
+export function createSeriesState(dataset) {
+  if (dataset.mode === "line") {
     return {
       mode: "line",
-      cycleLength: 600,
-      totalPoints: 60000
+      cycleLength: dataset.cycleLength,
+      totalPoints: dataset.totalPoints
     };
   }
 
-  if (subscription.includeX === true) {
+  if (dataset.mode === "scatter") {
     return {
       mode: "scatter",
-      batches: createScatterBatches(subscription),
-      cycleLength: 600
+      batches: createScatterBatches(dataset, dataset.cycleLength),
+      cycleLength: dataset.cycleLength
     };
   }
 
   return {
     mode: "line",
-    cycleLength: 600
+    cycleLength: dataset.cycleLength
   };
 }
 
-function generateLineSeriesPoints(subscription, tick, sampleCount) {
+function generateLineSeriesPoints(dataset, tick, sampleCount) {
   const points = [];
   const phase = tick / 6;
-  const center = (subscription.yMin + subscription.yMax) / 2;
-  const amplitude = (subscription.yMax - subscription.yMin) * 0.42;
-  const nameFactor = subscription.key
+  const center = (dataset.yMin + dataset.yMax) / 2;
+  const amplitude = (dataset.yMax - dataset.yMin) * 0.42;
+  const nameFactor = dataset.key
     .split("")
     .reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const frequency = 1 + (nameFactor % 5);
 
   for (let i = 0; i < sampleCount; i += 1) {
     const t = sampleCount <= 1 ? 0 : i / (sampleCount - 1);
-    const x = subscription.includeX === true
-      ? subscription.xMin + ((subscription.xMax - subscription.xMin || 1) * t)
-      : i;
+    const x = dataset.xMin + ((dataset.xMax - dataset.xMin || 1) * t);
     const wave = Math.sin((t * Math.PI * 2 * frequency) + phase);
     const wobble = Math.cos((t * Math.PI * 8) - (phase * 0.7)) * amplitude * 0.16;
     points.push({
@@ -144,15 +94,15 @@ function generateLineSeriesPoints(subscription, tick, sampleCount) {
   return points;
 }
 
-function generateLineSeriesBatch(subscription, state, tick) {
+function generateLineSeriesBatch(dataset, state, tick) {
   const cycleTick = tick % state.cycleLength;
   const batchSize = Math.ceil(state.totalPoints / state.cycleLength);
   const startIndex = cycleTick * batchSize;
   const endIndex = Math.min(state.totalPoints, startIndex + batchSize);
   const phase = tick / 6;
-  const center = (subscription.yMin + subscription.yMax) / 2;
-  const amplitude = (subscription.yMax - subscription.yMin) * 0.42;
-  const nameFactor = subscription.key
+  const center = (dataset.yMin + dataset.yMax) / 2;
+  const amplitude = (dataset.yMax - dataset.yMin) * 0.42;
+  const nameFactor = dataset.key
     .split("")
     .reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const frequency = 1 + (nameFactor % 5);
@@ -160,7 +110,7 @@ function generateLineSeriesBatch(subscription, state, tick) {
 
   for (let index = startIndex; index < endIndex; index += 1) {
     const x = startIndex + (index - startIndex);
-    const t = subscription.xMax === subscription.xMin ? 0 : (x - subscription.xMin) / (subscription.xMax - subscription.xMin);
+    const t = dataset.xMax === dataset.xMin ? 0 : (x - dataset.xMin) / (dataset.xMax - dataset.xMin);
     const wave = Math.sin((t * Math.PI * 2 * frequency) + phase);
     const wobble = Math.cos((t * Math.PI * 8) - (phase * 0.7)) * amplitude * 0.16;
     points.push({
@@ -174,7 +124,7 @@ function generateLineSeriesBatch(subscription, state, tick) {
   };
 }
 
-export function generateSeriesBatch(subscription, state, tick, sampleCount) {
+export function generateSeriesBatch(dataset, state, tick, sampleCount) {
   if (state?.mode === "scatter") {
     const batchIndex = tick % state.cycleLength;
     return {
@@ -183,11 +133,11 @@ export function generateSeriesBatch(subscription, state, tick, sampleCount) {
   }
 
   if (state?.mode === "line" && state.totalPoints) {
-    return generateLineSeriesBatch(subscription, state, tick);
+    return generateLineSeriesBatch(dataset, state, tick);
   }
 
   return {
-    points: generateLineSeriesPoints(subscription, tick, sampleCount)
+    points: generateLineSeriesPoints(dataset, tick, sampleCount)
   };
 }
 

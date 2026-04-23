@@ -1,28 +1,27 @@
 import "./schart-line.js";
 import "./schart-scatter.js";
 import { streamCharts } from "./client-core.js";
+import { createDemoSubscription } from "./demo-datasets.js";
 
 const subscriptions = [
-  {
-    key: "alpha",
-    xMin: 0,
-    xMax: 60000,
-    yMin: -2,
-    yMax: 2,
+  createDemoSubscription("alpha", {
     yBits: 16,
-    persistent: true
-  },
-  {
-    key: "clusters",
-    includeX: true,
-    xMin: 0,
-    xMax: 60000,
+    persistent: true,
+    viewXMin: 0,
+    viewXMax: 60000,
+    viewYMin: -2,
+    viewYMax: 2
+  }),
+  createDemoSubscription("clusters", {
     xBits: 16,
-    yMin: -0.1,
-    yMax: 1.1,
-    yBits: 12,
-    persistent: true
-  }
+    yBits: 16,
+    persistent: true,
+    opacity: 0.1,
+    viewXMin: 0,
+    //viewXMax: 60000,
+    viewYMin: -0.1,
+    viewYMax: 1.1
+  })
 ];
 
 const charts = new Map([

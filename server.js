@@ -4,6 +4,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createSeriesState, generateSeriesBatch } from "./data.js";
+import { getDemoDataset } from "./demo-datasets.js";
 import { decodeSubscribe, encodeDataMessage, frameMessage } from "./protocol.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -14,6 +15,7 @@ const STATIC_FILES = new Map([
   ["/", "index.html"],
   ["/index.html", "index.html"],
   ["/chart-base.js", "chart-base.js"],
+  ["/demo-datasets.js", "demo-datasets.js"],
   ["/schart-line.js", "schart-line.js"],
   ["/schart-scatter.js", "schart-scatter.js"],
   ["/browser-client.js", "browser-client.js"],
@@ -87,7 +89,12 @@ function getSourceState(subscription) {
     return existing;
   }
 
-  const state = createSeriesState(subscription);
+  const dataset = getDemoDataset(subscription.key);
+  if (!dataset) {
+    throw new Error(`Unknown demo dataset: ${subscription.key}`);
+  }
+
+  const state = createSeriesState(dataset);
   sourceStates.set(subscription.key, state);
   return state;
 }
@@ -103,8 +110,9 @@ function broadcastTick(nextTick) {
   clients.forEach((client) => {
     client.subscriptions.forEach((subscription, index) => {
       const state = getSourceState(subscription);
+      const dataset = getDemoDataset(subscription.key);
       const sampleCount = DEFAULT_SAMPLE_COUNT;
-      const batch = generateSeriesBatch(subscription, state, nextTick, sampleCount);
+      const batch = generateSeriesBatch(dataset, state, nextTick, sampleCount);
       sendSeries(client.res, subscription, index, batch);
     });
   });
@@ -136,7 +144,8 @@ function streamData(req, res) {
 
       subscriptions.forEach((subscription, index) => {
         const state = getSourceState(subscription);
-        const batch = generateSeriesBatch(subscription, state, globalTick, DEFAULT_SAMPLE_COUNT);
+        const dataset = getDemoDataset(subscription.key);
+        const batch = generateSeriesBatch(dataset, state, globalTick, DEFAULT_SAMPLE_COUNT);
         sendSeries(res, subscription, index, batch);
       });
 

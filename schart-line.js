@@ -43,9 +43,11 @@ class SChartLine extends SChartBase {
 
   renderSeries(ctx, layout, entry, _seriesIndex, startIndex, color) {
     const { left, top, plotWidth, plotHeight } = layout;
-    const { points, includeX, yMin, yMax } = entry;
-    const xMin = Number.isFinite(entry.xMin) ? entry.xMin : (includeX ? entry.xMin : 0);
-    const xMax = Number.isFinite(entry.xMax) ? entry.xMax : (includeX ? entry.xMax : Math.max(1, points.length - 1));
+    const { points } = entry;
+    const xMin = Number.isFinite(entry.viewXMin) ? entry.viewXMin : (Number.isFinite(entry.xMin) ? entry.xMin : 0);
+    const xMax = Number.isFinite(entry.viewXMax) ? entry.viewXMax : (Number.isFinite(entry.xMax) ? entry.xMax : Math.max(1, points.length - 1));
+    const yMin = Number.isFinite(entry.viewYMin) ? entry.viewYMin : entry.yMin;
+    const yMax = Number.isFinite(entry.viewYMax) ? entry.viewYMax : entry.yMax;
     const key = this.getSeriesKey(entry);
     const previousPoint = this.lastPointByKey.get(key) || null;
 

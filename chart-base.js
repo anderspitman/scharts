@@ -83,19 +83,22 @@ export class SChartBase extends HTMLElement {
   }
 
   getSeriesConfig(entry) {
-    const xMin = Number.isFinite(entry.xMin)
-      ? entry.xMin
-      : (entry.includeX === true ? entry.xMin : 0);
-    const xMax = Number.isFinite(entry.xMax)
-      ? entry.xMax
-      : (entry.includeX === true ? entry.xMax : Math.max(1, entry.points.length - 1));
+    const xMin = Number.isFinite(entry.viewXMin)
+      ? entry.viewXMin
+      : (Number.isFinite(entry.xMin) ? entry.xMin : 0);
+    const xMax = Number.isFinite(entry.viewXMax)
+      ? entry.viewXMax
+      : (Number.isFinite(entry.xMax) ? entry.xMax : Math.max(1, entry.points.length - 1));
+    const yMin = Number.isFinite(entry.viewYMin) ? entry.viewYMin : entry.yMin;
+    const yMax = Number.isFinite(entry.viewYMax) ? entry.viewYMax : entry.yMax;
     return {
       key: this.getSeriesKey(entry),
       includeX: entry.includeX === true,
       xMin,
       xMax,
-      yMin: entry.yMin,
-      yMax: entry.yMax,
+      yMin,
+      yMax,
+      opacity: entry.opacity,
       persistent: this.isSeriesPersistent(entry)
     };
   }
@@ -166,13 +169,13 @@ export class SChartBase extends HTMLElement {
     const { width, height, left, top, plotWidth, plotHeight } = layout;
     const primarySeries = this.series[0];
     const xMin = primarySeries
-      ? (Number.isFinite(primarySeries.xMin) ? primarySeries.xMin : (primarySeries.includeX === true ? primarySeries.xMin : 0))
+      ? (Number.isFinite(primarySeries.viewXMin) ? primarySeries.viewXMin : (Number.isFinite(primarySeries.xMin) ? primarySeries.xMin : 0))
       : 0;
     const xMax = primarySeries
-      ? (Number.isFinite(primarySeries.xMax) ? primarySeries.xMax : (primarySeries.includeX === true ? primarySeries.xMax : Math.max(1, primarySeries.points.length - 1)))
+      ? (Number.isFinite(primarySeries.viewXMax) ? primarySeries.viewXMax : (Number.isFinite(primarySeries.xMax) ? primarySeries.xMax : Math.max(1, primarySeries.points.length - 1)))
       : 1;
-    const yMin = primarySeries ? primarySeries.yMin : 0;
-    const yMax = primarySeries ? primarySeries.yMax : 1;
+    const yMin = primarySeries ? (Number.isFinite(primarySeries.viewYMin) ? primarySeries.viewYMin : primarySeries.yMin) : 0;
+    const yMax = primarySeries ? (Number.isFinite(primarySeries.viewYMax) ? primarySeries.viewYMax : primarySeries.yMax) : 1;
 
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "rgba(255, 255, 255, 0.02)";

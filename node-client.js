@@ -1,4 +1,5 @@
 import { streamCharts } from "./client-core.js";
+import { createDemoSubscription } from "./demo-datasets.js";
 
 const port = Number(process.env.PORT || process.env.SCHARTS_PORT || 8080);
 const ANSI_RESET = "\x1b[0m";
@@ -7,26 +8,24 @@ const SERIES_COLORS = {
   clusters: "\x1b[38;5;45m"
 };
 const subscriptions = [
-  {
-    key: "alpha",
-    xMin: 0,
-    xMax: 60000,
-    yMin: -2,
-    yMax: 2,
+  createDemoSubscription("alpha", {
     yBits: 16,
-    persistent: true
-  },
-  {
-    key: "clusters",
-    includeX: true,
-    xMin: 0,
-    xMax: 60000,
+    persistent: true,
+    viewXMin: 0,
+    viewXMax: 60000,
+    viewYMin: -2,
+    viewYMax: 2
+  }),
+  createDemoSubscription("clusters", {
     xBits: 16,
-    yMin: -0.1,
-    yMax: 1.1,
     yBits: 12,
-    persistent: true
-  }
+    persistent: true,
+    opacity: 0.1,
+    viewXMin: 0,
+    viewXMax: 60000,
+    viewYMin: -0.1,
+    viewYMax: 1.1
+  })
 ];
 
 let lastStats = {
@@ -89,11 +88,11 @@ function drawSegment(canvas, x0, y0, x1, y1, color) {
 
 function projectPoint(subscription, canvas, point) {
   const x = clamp(
-    Math.round(((point.x - subscription.xMin) / (subscription.xMax - subscription.xMin || 1)) * (canvas.pixelWidth - 1)),
+    Math.round(((point.x - subscription.viewXMin) / (subscription.viewXMax - subscription.viewXMin || 1)) * (canvas.pixelWidth - 1)),
     0,
     canvas.pixelWidth - 1
   );
-  const normalized = (point.y - subscription.yMin) / (subscription.yMax - subscription.yMin || 1);
+  const normalized = (point.y - subscription.viewYMin) / (subscription.viewYMax - subscription.viewYMin || 1);
   const y = clamp(
     canvas.pixelHeight - 1 - Math.round(normalized * (canvas.pixelHeight - 1)),
     0,
