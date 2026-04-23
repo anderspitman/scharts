@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { generateSeriesPoints } from "./data.js";
+import { createSeriesState, generateSeriesBatch } from "./data.js";
 import { decodeSubscribe, encodeDataMessage, frameMessage } from "./protocol.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -78,6 +78,7 @@ function streamData(req, res) {
     .then((body) => {
       const subscriptions = decodeSubscribe(new Uint8Array(body));
       subscriptions.forEach(validateSubscription);
+      const states = subscriptions.map((subscription) => createSeriesState(subscription));
 
       res.writeHead(200, {
         "content-type": "application/octet-stream",
@@ -88,11 +89,16 @@ function streamData(req, res) {
       let tick = 0;
       const sendBatch = () => {
         subscriptions.forEach((subscription, index) => {
-          const points = generateSeriesPoints(subscription, tick + index * 3, 96);
+          const points = generateSeriesBatch(subscription, states[index], tick + index * 3, 96);
           const message = encodeDataMessage(subscription, index, points);
           res.write(Buffer.from(frameMessage(message)));
         });
         tick += 1;
+
+        if (tick >= 600) {
+          clearInterval(timer);
+          res.end();
+        }
       };
 
       sendBatch();

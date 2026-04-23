@@ -3,16 +3,16 @@ import { streamCharts } from "./client-core.js";
 
 const subscriptions = [
   {
-    key: "alpha",
-    yMin: -2,
-    yMax: 2,
-    yBits: 16
-  },
-  {
-    key: "beta",
-    yMin: -2,
-    yMax: 2,
-    yBits: 16
+    key: "clusters",
+    includeX: true,
+    xMin: 0,
+    xMax: 60000,
+    xBits: 16,
+    yMin: -0.1,
+    yMax: 1.1,
+    yBits: 12,
+    renderMode: "scatter",
+    persistent: true
   }
 ];
 
@@ -56,7 +56,11 @@ streamCharts({
     }
 
     const base = subscriptions[message.index];
-    latest.set(message.key, { ...base, points: message.points });
+    const previous = latest.get(message.key) || { ...base, points: [] };
+    latest.set(message.key, {
+      ...base,
+      points: previous.points.concat(message.points)
+    });
     redraw();
   }
 }).catch((error) => {
