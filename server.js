@@ -11,7 +11,9 @@ const PORT = Number(process.env.PORT || 8080);
 const STATIC_FILES = new Map([
   ["/", "index.html"],
   ["/index.html", "index.html"],
-  ["/chart-element.js", "chart-element.js"],
+  ["/chart-base.js", "chart-base.js"],
+  ["/schart-line.js", "schart-line.js"],
+  ["/schart-scatter.js", "schart-scatter.js"],
   ["/browser-client.js", "browser-client.js"],
   ["/client-core.js", "client-core.js"],
   ["/protocol.js", "protocol.js"]
