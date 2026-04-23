@@ -96,15 +96,25 @@ function createScatterBatches(subscription, batchCount = 600) {
 }
 
 export function createSeriesState(subscription) {
+  if (subscription.key === "alpha") {
+    return {
+      mode: "line",
+      cycleLength: 600,
+      totalPoints: 60000
+    };
+  }
+
   if (subscription.includeX === true) {
     return {
       mode: "scatter",
-      batches: createScatterBatches(subscription)
+      batches: createScatterBatches(subscription),
+      cycleLength: 600
     };
   }
 
   return {
-    mode: "line"
+    mode: "line",
+    cycleLength: 600
   };
 }
 
@@ -134,10 +144,57 @@ function generateLineSeriesPoints(subscription, tick, sampleCount) {
   return points;
 }
 
-export function generateSeriesBatch(subscription, state, tick, sampleCount) {
-  if (state?.mode === "scatter") {
-    return state.batches[tick] || [];
+function generateLineSeriesBatch(subscription, state, tick) {
+  const cycleTick = tick % state.cycleLength;
+  const batchSize = Math.ceil(state.totalPoints / state.cycleLength);
+  const startIndex = cycleTick * batchSize;
+  const endIndex = Math.min(state.totalPoints, startIndex + batchSize);
+  const phase = tick / 6;
+  const center = (subscription.yMin + subscription.yMax) / 2;
+  const amplitude = (subscription.yMax - subscription.yMin) * 0.42;
+  const nameFactor = subscription.key
+    .split("")
+    .reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const frequency = 1 + (nameFactor % 5);
+  const points = [];
+
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const x = startIndex + (index - startIndex);
+    const t = subscription.xMax === subscription.xMin ? 0 : (x - subscription.xMin) / (subscription.xMax - subscription.xMin);
+    const wave = Math.sin((t * Math.PI * 2 * frequency) + phase);
+    const wobble = Math.cos((t * Math.PI * 8) - (phase * 0.7)) * amplitude * 0.16;
+    points.push({
+      y: center + (wave * amplitude) + wobble
+    });
   }
 
-  return generateLineSeriesPoints(subscription, tick, sampleCount);
+  return {
+    points,
+    xOffset: startIndex
+  };
+}
+
+export function generateSeriesBatch(subscription, state, tick, sampleCount) {
+  if (state?.mode === "scatter") {
+    const batchIndex = tick % state.cycleLength;
+    return {
+      points: state.batches[batchIndex] || []
+    };
+  }
+
+  if (state?.mode === "line" && state.totalPoints) {
+    return generateLineSeriesBatch(subscription, state, tick);
+  }
+
+  return {
+    points: generateLineSeriesPoints(subscription, tick, sampleCount)
+  };
+}
+
+export function didSeriesWrap(state, previousTick, nextTick) {
+  if (!state?.cycleLength) {
+    return false;
+  }
+
+  return Math.floor(previousTick / state.cycleLength) !== Math.floor(nextTick / state.cycleLength);
 }

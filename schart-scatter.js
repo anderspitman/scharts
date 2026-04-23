@@ -1,8 +1,9 @@
 import { SChartBase } from "./chart-base.js";
 
 class SChartScatter extends SChartBase {
-  isSeriesPersistent(entry) {
-    return entry.persistent === true;
+  constructor() {
+    super();
+    this.maxXByKey = new Map();
   }
 
   getSeriesConfig(entry) {
@@ -12,11 +13,35 @@ class SChartScatter extends SChartBase {
     };
   }
 
+  shouldClearPlotOnUpdate(entry) {
+    if (entry.persistent !== true) {
+      this.maxXByKey.delete(this.getSeriesKey(entry));
+      return true;
+    }
+
+    if (!entry.points.length) {
+      return false;
+    }
+
+    const key = this.getSeriesKey(entry);
+    const maxSeenX = this.maxXByKey.get(key);
+    if (maxSeenX === undefined) {
+      return false;
+    }
+
+    if (entry.points[0].x < maxSeenX) {
+      this.maxXByKey.delete(key);
+      return true;
+    }
+
+    return false;
+  }
+
   renderSeries(ctx, layout, entry, _seriesIndex, startIndex, color) {
     const { left, top, plotWidth, plotHeight } = layout;
     const { points, includeX, yMin, yMax } = entry;
-    const xMin = includeX ? entry.xMin : 0;
-    const xMax = includeX ? entry.xMax : Math.max(1, points.length - 1);
+    const xMin = Number.isFinite(entry.xMin) ? entry.xMin : (includeX ? entry.xMin : 0);
+    const xMax = Number.isFinite(entry.xMax) ? entry.xMax : (includeX ? entry.xMax : Math.max(1, points.length - 1));
 
     ctx.fillStyle = color;
     for (let pointIndex = startIndex; pointIndex < points.length; pointIndex += 1) {
@@ -27,6 +52,11 @@ class SChartScatter extends SChartBase {
       ctx.arc(x, y, 2.4, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    const key = this.getSeriesKey(entry);
+    const nextMaxX = points.reduce((maxX, point) => Math.max(maxX, point.x), Number.NEGATIVE_INFINITY);
+    const previousMaxX = this.maxXByKey.get(key) ?? Number.NEGATIVE_INFINITY;
+    this.maxXByKey.set(key, Math.max(previousMaxX, nextMaxX));
   }
 }
 

@@ -34,7 +34,9 @@ PORT=9000 npm run client:node
 - `server.js`: Node HTTP producer and static file server
 - `client-core.js`: shared streaming client for Node and browser
 - `browser-client.js`: browser entrypoint
-- `chart-element.js`: vanilla web component canvas chart
+- `chart-base.js`: shared canvas/layout logic for web components
+- `schart-line.js`: line chart web component
+- `schart-scatter.js`: scatter chart web component
 - `node-client.js`: dependency-free terminal renderer with a colored braille canvas
 
 ## Notes

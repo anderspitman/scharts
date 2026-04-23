@@ -4,6 +4,20 @@ function defaultSeriesKey(entry) {
   return entry.key ?? "";
 }
 
+function formatTick(value) {
+  const magnitude = Math.abs(value);
+  if (magnitude >= 1000) {
+    return value.toFixed(0);
+  }
+  if (magnitude >= 100) {
+    return value.toFixed(1);
+  }
+  if (magnitude >= 1) {
+    return value.toFixed(2);
+  }
+  return value.toFixed(3);
+}
+
 export class SChartBase extends HTMLElement {
   constructor() {
     super();
@@ -41,7 +55,6 @@ export class SChartBase extends HTMLElement {
     `;
     this.shadowRoot.querySelector(".stack").append(this.gridCanvas, this.plotCanvas);
     this.series = [];
-    this.renderedCounts = new Map();
     this.lastLayoutKey = "";
     this.lastDataKey = "";
     this.resizeObserver = new ResizeObserver(() => this.render());
@@ -70,8 +83,12 @@ export class SChartBase extends HTMLElement {
   }
 
   getSeriesConfig(entry) {
-    const xMin = entry.includeX === true ? entry.xMin : 0;
-    const xMax = entry.includeX === true ? entry.xMax : Math.max(1, entry.points.length - 1);
+    const xMin = Number.isFinite(entry.xMin)
+      ? entry.xMin
+      : (entry.includeX === true ? entry.xMin : 0);
+    const xMax = Number.isFinite(entry.xMax)
+      ? entry.xMax
+      : (entry.includeX === true ? entry.xMax : Math.max(1, entry.points.length - 1));
     return {
       key: this.getSeriesKey(entry),
       includeX: entry.includeX === true,
@@ -85,6 +102,10 @@ export class SChartBase extends HTMLElement {
 
   renderSeries(_ctx, _layout, _entry, _seriesIndex, _startIndex) {
     throw new Error("renderSeries must be implemented");
+  }
+
+  shouldClearPlotOnUpdate(_entry) {
+    return true;
   }
 
   render() {
@@ -129,26 +150,12 @@ export class SChartBase extends HTMLElement {
 
     if (requiresFullRedraw) {
       plot.clearRect(0, 0, width, height);
-      this.renderedCounts.clear();
       this.series.forEach((entry, seriesIndex) => this.drawSeries(plot, layout, entry, seriesIndex, 0));
     } else {
-      const requiresReset = this.series.some((entry) => {
-        const key = this.getSeriesKey(entry);
-        const renderedCount = this.renderedCounts.get(key) || 0;
-        return !this.isSeriesPersistent(entry) || renderedCount > entry.points.length;
-      });
-
-      if (requiresReset) {
+      if (this.series.some((entry) => this.shouldClearPlotOnUpdate(entry))) {
         plot.clearRect(0, 0, width, height);
-        this.renderedCounts.clear();
-        this.series.forEach((entry, seriesIndex) => this.drawSeries(plot, layout, entry, seriesIndex, 0));
-      } else {
-        this.series.forEach((entry, seriesIndex) => {
-          const key = this.getSeriesKey(entry);
-          const renderedCount = this.renderedCounts.get(key) || 0;
-          this.drawSeries(plot, layout, entry, seriesIndex, renderedCount);
-        });
       }
+      this.series.forEach((entry, seriesIndex) => this.drawSeries(plot, layout, entry, seriesIndex, 0));
     }
 
     this.lastLayoutKey = layoutKey;
@@ -157,6 +164,16 @@ export class SChartBase extends HTMLElement {
 
   drawGrid(ctx, layout) {
     const { width, height, left, top, plotWidth, plotHeight } = layout;
+    const primarySeries = this.series[0];
+    const xMin = primarySeries
+      ? (Number.isFinite(primarySeries.xMin) ? primarySeries.xMin : (primarySeries.includeX === true ? primarySeries.xMin : 0))
+      : 0;
+    const xMax = primarySeries
+      ? (Number.isFinite(primarySeries.xMax) ? primarySeries.xMax : (primarySeries.includeX === true ? primarySeries.xMax : Math.max(1, primarySeries.points.length - 1)))
+      : 1;
+    const yMin = primarySeries ? primarySeries.yMin : 0;
+    const yMax = primarySeries ? primarySeries.yMax : 1;
+
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
     ctx.fillRect(0, 0, width, height);
@@ -170,16 +187,39 @@ export class SChartBase extends HTMLElement {
       ctx.lineTo(left + plotWidth, y);
       ctx.stroke();
     }
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(left, top + plotHeight);
+    ctx.lineTo(left + plotWidth, top + plotHeight);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(226, 232, 240, 0.85)";
+    ctx.font = '12px "Iosevka Aile", "IBM Plex Sans", sans-serif';
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "right";
+
+    for (let i = 0; i <= 4; i += 1) {
+      const y = top + (plotHeight * i) / 4;
+      const value = yMax - ((yMax - yMin) * i) / 4;
+      ctx.fillText(formatTick(value), left - 8, y);
+    }
+
+    ctx.textBaseline = "top";
+    ctx.textAlign = "center";
+    for (let i = 0; i <= 4; i += 1) {
+      const x = left + (plotWidth * i) / 4;
+      const value = xMin + ((xMax - xMin) * i) / 4;
+      ctx.fillText(formatTick(value), x, top + plotHeight + 8);
+    }
   }
 
   drawSeries(ctx, layout, entry, seriesIndex, startIndex) {
-    const key = this.getSeriesKey(entry);
     if (!entry.points.length || startIndex >= entry.points.length) {
-      this.renderedCounts.set(key, entry.points.length);
       return;
     }
 
     this.renderSeries(ctx, layout, entry, seriesIndex, startIndex, COLORS[seriesIndex % COLORS.length]);
-    this.renderedCounts.set(key, entry.points.length);
   }
 }

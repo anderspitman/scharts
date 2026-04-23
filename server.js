@@ -8,6 +8,8 @@ import { decodeSubscribe, encodeDataMessage, frameMessage } from "./protocol.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
+const STREAM_INTERVAL_MS = 100;
+const DEFAULT_SAMPLE_COUNT = 96;
 const STATIC_FILES = new Map([
   ["/", "index.html"],
   ["/index.html", "index.html"],
@@ -75,12 +77,49 @@ function collectRequestBody(req) {
   });
 }
 
+const sourceStates = new Map();
+const clients = new Set();
+let globalTick = 0;
+
+function getSourceState(subscription) {
+  const existing = sourceStates.get(subscription.key);
+  if (existing) {
+    return existing;
+  }
+
+  const state = createSeriesState(subscription);
+  sourceStates.set(subscription.key, state);
+  return state;
+}
+
+function sendSeries(res, subscription, index, batch) {
+  const message = encodeDataMessage(subscription, index, batch.points, {
+    xOffset: batch.xOffset
+  });
+  res.write(Buffer.from(frameMessage(message)));
+}
+
+function broadcastTick(nextTick) {
+  clients.forEach((client) => {
+    client.subscriptions.forEach((subscription, index) => {
+      const state = getSourceState(subscription);
+      const sampleCount = DEFAULT_SAMPLE_COUNT;
+      const batch = generateSeriesBatch(subscription, state, nextTick, sampleCount);
+      sendSeries(client.res, subscription, index, batch);
+    });
+  });
+  globalTick = nextTick;
+}
+
+setInterval(() => {
+  broadcastTick(globalTick + 1);
+}, STREAM_INTERVAL_MS);
+
 function streamData(req, res) {
   collectRequestBody(req)
     .then((body) => {
       const subscriptions = decodeSubscribe(new Uint8Array(body));
       subscriptions.forEach(validateSubscription);
-      const states = subscriptions.map((subscription) => createSeriesState(subscription));
 
       res.writeHead(200, {
         "content-type": "application/octet-stream",
@@ -88,25 +127,22 @@ function streamData(req, res) {
         "transfer-encoding": "chunked"
       });
 
-      let tick = 0;
-      const sendBatch = () => {
-        subscriptions.forEach((subscription, index) => {
-          const points = generateSeriesBatch(subscription, states[index], tick + index * 3, 96);
-          const message = encodeDataMessage(subscription, index, points);
-          res.write(Buffer.from(frameMessage(message)));
-        });
-        tick += 1;
-
-        if (tick >= 600) {
-          clearInterval(timer);
-          res.end();
-        }
+      const client = {
+        req,
+        res,
+        subscriptions
       };
+      clients.add(client);
 
-      sendBatch();
-      const timer = setInterval(sendBatch, 100);
+      subscriptions.forEach((subscription, index) => {
+        const state = getSourceState(subscription);
+        const batch = generateSeriesBatch(subscription, state, globalTick, DEFAULT_SAMPLE_COUNT);
+        sendSeries(res, subscription, index, batch);
+      });
 
-      const close = () => clearInterval(timer);
+      const close = () => {
+        clients.delete(client);
+      };
       req.on("close", close);
       res.on("close", close);
     })

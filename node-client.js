@@ -2,33 +2,40 @@ import { streamCharts } from "./client-core.js";
 
 const port = Number(process.env.PORT || process.env.SCHARTS_PORT || 8080);
 const ANSI_RESET = "\x1b[0m";
-const SERIES_COLORS = [
-  "\x1b[38;5;220m",
-  "\x1b[38;5;45m",
-  "\x1b[38;5;204m",
-  "\x1b[38;5;120m"
-];
+const SERIES_COLORS = {
+  alpha: "\x1b[38;5;220m",
+  clusters: "\x1b[38;5;45m"
+};
 const subscriptions = [
   {
     key: "alpha",
+    xMin: 0,
+    xMax: 60000,
     yMin: -2,
     yMax: 2,
-    yBits: 16
+    yBits: 16,
+    persistent: true
   },
   {
-    key: "beta",
-    yMin: -2,
-    yMax: 2,
-    yBits: 16
+    key: "clusters",
+    includeX: true,
+    xMin: 0,
+    xMax: 60000,
+    xBits: 16,
+    yMin: -0.1,
+    yMax: 1.1,
+    yBits: 12,
+    persistent: true
   }
 ];
 
-const latest = new Map();
 let lastStats = {
   bytesReceived: 0,
   bitrateBps: 0,
   messageCount: 0
 };
+let repaintScheduled = false;
+let terminalInitialized = false;
 
 function formatBitrate(bitrateBps) {
   if (bitrateBps >= 1_000_000) {
@@ -42,20 +49,6 @@ function formatBitrate(bitrateBps) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
-}
-
-function drawSegment(canvas, x0, y0, x1, y1, colorIndex) {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
-
-  for (let step = 0; step <= steps; step += 1) {
-    const x = Math.round(x0 + (dx * step) / steps);
-    const y = Math.round(y0 + (dy * step) / steps);
-    if (y >= 0 && y < canvas.length && x >= 0 && x < canvas[0].length) {
-      canvas[y][x] = colorIndex;
-    }
-  }
 }
 
 function createBrailleCanvas(cellWidth, cellHeight) {
@@ -72,29 +65,42 @@ function createBrailleCanvas(cellWidth, cellHeight) {
   };
 }
 
-function plotSeries(canvas, series, colorIndex) {
-  let previous = null;
-  for (let i = 0; i < series.points.length; i += 1) {
-    const point = series.points[i];
-    const x = clamp(
-      Math.round((i / Math.max(1, series.points.length - 1)) * (canvas.pixelWidth - 1)),
-      0,
-      canvas.pixelWidth - 1
-    );
-    const normalized = (point.y - series.yMin) / (series.yMax - series.yMin || 1);
-    const y = clamp(
-      canvas.pixelHeight - 1 - Math.round(normalized * (canvas.pixelHeight - 1)),
-      0,
-      canvas.pixelHeight - 1
-    );
+function clearBrailleCanvas(canvas) {
+  canvas.pixels.forEach((row) => row.fill(-1));
+}
 
-    if (previous) {
-      drawSegment(canvas.pixels, previous.x, previous.y, x, y, colorIndex);
-    } else {
-      canvas.pixels[y][x] = colorIndex;
-    }
-    previous = { x, y };
+function drawPixel(canvas, x, y, color) {
+  if (y >= 0 && y < canvas.pixelHeight && x >= 0 && x < canvas.pixelWidth) {
+    canvas.pixels[y][x] = color;
   }
+}
+
+function drawSegment(canvas, x0, y0, x1, y1, color) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
+
+  for (let step = 0; step <= steps; step += 1) {
+    const x = Math.round(x0 + (dx * step) / steps);
+    const y = Math.round(y0 + (dy * step) / steps);
+    drawPixel(canvas, x, y, color);
+  }
+}
+
+function projectPoint(subscription, canvas, point) {
+  const x = clamp(
+    Math.round(((point.x - subscription.xMin) / (subscription.xMax - subscription.xMin || 1)) * (canvas.pixelWidth - 1)),
+    0,
+    canvas.pixelWidth - 1
+  );
+  const normalized = (point.y - subscription.yMin) / (subscription.yMax - subscription.yMin || 1);
+  const y = clamp(
+    canvas.pixelHeight - 1 - Math.round(normalized * (canvas.pixelHeight - 1)),
+    0,
+    canvas.pixelHeight - 1
+  );
+
+  return { x, y };
 }
 
 function brailleMaskForCell(pixels, cellX, cellY) {
@@ -112,29 +118,26 @@ function brailleMaskForCell(pixels, cellX, cellY) {
   ];
 
   let mask = 0;
-  let colorIndex = -1;
+  let color = null;
   for (const [offsetX, offsetY, bit] of dotMap) {
     const value = pixels[baseY + offsetY]?.[baseX + offsetX] ?? -1;
     if (value !== -1) {
       mask |= bit;
-      colorIndex = value;
+      color = value;
     }
   }
 
-  return { mask, colorIndex };
+  return { mask, color };
 }
 
-function renderBrailleCanvas(series) {
-  const canvas = createBrailleCanvas(72, 9);
-  series.forEach((entry, index) => plotSeries(canvas, entry, index % SERIES_COLORS.length));
-
+function renderBrailleCanvas(canvas) {
   const lines = [];
   for (let cellY = 0; cellY < canvas.cellHeight; cellY += 1) {
     let line = "";
     let activeColor = null;
 
     for (let cellX = 0; cellX < canvas.cellWidth; cellX += 1) {
-      const { mask, colorIndex } = brailleMaskForCell(canvas.pixels, cellX, cellY);
+      const { mask, color } = brailleMaskForCell(canvas.pixels, cellX, cellY);
       if (mask === 0) {
         if (activeColor !== null) {
           line += ANSI_RESET;
@@ -144,7 +147,6 @@ function renderBrailleCanvas(series) {
         continue;
       }
 
-      const color = SERIES_COLORS[colorIndex];
       if (activeColor !== color) {
         line += color;
         activeColor = color;
@@ -158,27 +160,158 @@ function renderBrailleCanvas(series) {
     lines.push(line);
   }
 
-  return lines.join("\n");
+  return lines;
 }
 
-function renderLegend(series) {
-  return series
-    .map((entry, index) => `${SERIES_COLORS[index % SERIES_COLORS.length]}${entry.key}${ANSI_RESET}`)
-    .join("  ");
+function createRenderer(subscription, mode) {
+  return {
+    subscription,
+    mode,
+    canvas: createBrailleCanvas(72, 9),
+    maxSeenX: Number.NEGATIVE_INFINITY,
+    previousPoint: null
+  };
 }
 
-function repaint() {
-  const series = subscriptions.map((item) => latest.get(item.key)).filter(Boolean);
-  if (!series.length) {
+const renderers = new Map([
+  ["alpha", createRenderer(subscriptions[0], "line")],
+  ["clusters", createRenderer(subscriptions[1], "scatter")]
+]);
+
+function resetRenderer(renderer) {
+  clearBrailleCanvas(renderer.canvas);
+  renderer.maxSeenX = Number.NEGATIVE_INFINITY;
+  renderer.previousPoint = null;
+}
+
+function maybeWrapRenderer(renderer, points) {
+  if (!renderer.subscription.persistent || !points.length) {
+    return false;
+  }
+
+  if (renderer.maxSeenX === Number.NEGATIVE_INFINITY) {
+    return false;
+  }
+
+  if (points[0].x < renderer.maxSeenX) {
+    resetRenderer(renderer);
+    return true;
+  }
+
+  return false;
+}
+
+function drawLineBatch(renderer, points) {
+  points.forEach((point, index) => {
+    const projected = projectPoint(renderer.subscription, renderer.canvas, point);
+    if (index === 0) {
+      if (renderer.previousPoint) {
+        const previous = projectPoint(renderer.subscription, renderer.canvas, renderer.previousPoint);
+        drawSegment(renderer.canvas, previous.x, previous.y, projected.x, projected.y, SERIES_COLORS.alpha);
+      } else {
+        drawPixel(renderer.canvas, projected.x, projected.y, SERIES_COLORS.alpha);
+      }
+    } else {
+      const previous = projectPoint(renderer.subscription, renderer.canvas, points[index - 1]);
+      drawSegment(renderer.canvas, previous.x, previous.y, projected.x, projected.y, SERIES_COLORS.alpha);
+    }
+  });
+
+  renderer.previousPoint = points.at(-1) || renderer.previousPoint;
+}
+
+function drawScatterBatch(renderer, points) {
+  points.forEach((point) => {
+    const projected = projectPoint(renderer.subscription, renderer.canvas, point);
+    drawPixel(renderer.canvas, projected.x, projected.y, SERIES_COLORS.clusters);
+  });
+}
+
+function applyBatch(key, points) {
+  const renderer = renderers.get(key);
+  if (!renderer) {
     return;
   }
 
-  process.stdout.write("\x1b[2J\x1b[H");
-  process.stdout.write("scharts node client\n");
-  process.stdout.write(`${renderLegend(series)}\n\n`);
-  process.stdout.write(`/stream ${formatBitrate(lastStats.bitrateBps)} • ${lastStats.bytesReceived} B • ${lastStats.messageCount} messages\n\n`);
-  process.stdout.write(`${renderBrailleCanvas(series)}\n`);
+  maybeWrapRenderer(renderer, points);
+  if (!renderer.subscription.persistent) {
+    resetRenderer(renderer);
+  }
+
+  if (renderer.mode === "line") {
+    drawLineBatch(renderer, points);
+  } else {
+    drawScatterBatch(renderer, points);
+  }
+
+  if (points.length) {
+    const batchMaxX = points.reduce((maxX, point) => Math.max(maxX, point.x), Number.NEGATIVE_INFINITY);
+    renderer.maxSeenX = Math.max(renderer.maxSeenX, batchMaxX);
+  }
 }
+
+function renderSection(title, key) {
+  const color = SERIES_COLORS[key];
+  const renderer = renderers.get(key);
+  const lines = renderBrailleCanvas(renderer.canvas);
+  return [
+    `${color}${title}${ANSI_RESET}`,
+    ...lines
+  ].join("\n");
+}
+
+function repaint() {
+  repaintScheduled = false;
+  const frame = [
+    "\x1b[H",
+    "scharts node client",
+    `/stream ${formatBitrate(lastStats.bitrateBps)} • ${lastStats.bytesReceived} B • ${lastStats.messageCount} messages`,
+    "",
+    renderSection("Line", "alpha"),
+    "",
+    renderSection("Scatter", "clusters"),
+    "\x1b[J"
+  ].join("\n");
+  process.stdout.write(frame);
+}
+
+function scheduleRepaint() {
+  if (repaintScheduled) {
+    return;
+  }
+
+  repaintScheduled = true;
+  setTimeout(repaint, 0);
+}
+
+function restoreTerminal() {
+  if (!terminalInitialized) {
+    return;
+  }
+
+  terminalInitialized = false;
+  process.stdout.write(`\x1b[?25h${ANSI_RESET}\x1b[?1049l`);
+}
+
+function initTerminal() {
+  if (terminalInitialized || !process.stdout.isTTY) {
+    return;
+  }
+
+  terminalInitialized = true;
+  process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[H\x1b[J");
+  process.on("exit", restoreTerminal);
+  process.on("SIGINT", () => {
+    restoreTerminal();
+    process.exit(130);
+  });
+  process.on("SIGTERM", () => {
+    restoreTerminal();
+    process.exit(143);
+  });
+}
+
+initTerminal();
 
 streamCharts({
   url: process.env.SCHARTS_URL || `http://localhost:${port}/stream`,
@@ -186,15 +319,14 @@ streamCharts({
   onMessage(message, stats) {
     if (stats) {
       lastStats = stats;
+      scheduleRepaint();
     }
     if (!message) {
-      repaint();
       return;
     }
 
-    const base = subscriptions[message.index];
-    latest.set(message.key, { ...base, points: message.points });
-    repaint();
+    applyBatch(message.key, message.points);
+    scheduleRepaint();
   }
 }).catch((error) => {
   console.error(error);

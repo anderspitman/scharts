@@ -5,9 +5,12 @@ import { streamCharts } from "./client-core.js";
 const subscriptions = [
   {
     key: "alpha",
+    xMin: 0,
+    xMax: 60000,
     yMin: -2,
     yMax: 2,
-    yBits: 16
+    yBits: 16,
+    persistent: true
   },
   {
     key: "clusters",
@@ -27,7 +30,6 @@ const charts = new Map([
   ["clusters", document.querySelector("schart-scatter")]
 ]);
 const status = document.querySelector("[data-status]");
-const latest = new Map(subscriptions.map((item) => [item.key, { ...item, points: [] }]));
 let lastStats = {
   bytesReceived: 0,
   bitrateBps: 0,
@@ -48,16 +50,6 @@ function updateStatus() {
   status.textContent = `/stream ${formatBitrate(lastStats.bitrateBps)} • ${lastStats.bytesReceived} B • ${lastStats.messageCount} messages`;
 }
 
-function redraw(key) {
-  const chart = charts.get(key);
-  if (!chart) {
-    return;
-  }
-
-  const entry = latest.get(key);
-  chart.data = entry ? [entry] : [];
-}
-
 streamCharts({
   url: "/stream",
   items: subscriptions,
@@ -71,19 +63,15 @@ streamCharts({
     }
 
     const base = subscriptions[message.index];
-    if (base.includeX === true) {
-      const previous = latest.get(message.key) || { ...base, points: [] };
-      latest.set(message.key, {
-        ...base,
-        points: previous.points.concat(message.points)
-      });
-    } else {
-      latest.set(message.key, {
-        ...base,
-        points: message.points
-      });
+    const chart = charts.get(message.key);
+    if (!chart) {
+      return;
     }
-    redraw(message.key);
+
+    chart.data = [{
+      ...base,
+      points: message.points
+    }];
   }
 }).catch((error) => {
   status.textContent = error.message;

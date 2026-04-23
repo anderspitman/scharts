@@ -59,6 +59,9 @@ Message type (8 bits) - uint8 1 (DATA)
 Data index (32 bits) - uint32 corresponding to ordinal data key
 Sample count (32 bits) - uint32 number of packed samples
 includeX (8 bits) - boolean. indicates if X values are included
+includeXOffset (8 bits) - boolean. indicates if a batch-level x offset is included
+if includeXOffset:
+  xOffset (64 bits) - float64 batch-level x origin for dense samples
 Packed data array (N bits)
 ```
 
@@ -76,6 +79,12 @@ Zero pad any extra bytes.
 
 When includeX, packed values are ordered x0, y0, x1, y1, ...
 
+When includeX is false and includeXOffset is true, packed values contain only
+Y samples, and sample i is positioned at xOffset + i.
+
+When includeX is false and includeXOffset is false, packed values contain only
+Y samples, and sample i is positioned at i.
+
 
 ## Transport
 
@@ -88,8 +97,8 @@ because current browsers/servers don't play nice with streaming requests.
 # Instructions
 
 Build a simple reference implementation of this in javascript. There should be
-a nodejs HTTP server that generates some dummy line chart data. There should
-be a client that works in node or the browser.
+a nodejs HTTP server that generates some dummy chart data. There should be a
+client that works in node or the browser.
 
 The browser client should use a vanilla js web component chart.
 

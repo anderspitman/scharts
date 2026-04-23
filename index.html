@@ -37,7 +37,27 @@
         color: #cbd5e1;
       }
 
-      s-chart {
+      .charts {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+
+      section {
+        display: grid;
+        gap: 10px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #f8fafc;
+      }
+
+      schart-line,
+      schart-scatter {
         height: 420px;
       }
 
@@ -52,7 +72,16 @@
     <main>
       <h1>Streaming Binary Charts</h1>
       <p>Reference browser client for the length-prefixed HTTP protocol.</p>
-      <s-chart></s-chart>
+      <div class="charts">
+        <section>
+          <h2>Line</h2>
+          <schart-line></schart-line>
+        </section>
+        <section>
+          <h2>Scatter</h2>
+          <schart-scatter></schart-scatter>
+        </section>
+      </div>
       <div class="status" data-status>Connecting…</div>
     </main>
     <script type="module" src="/browser-client.js"></script>

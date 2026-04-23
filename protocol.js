@@ -170,6 +170,8 @@ export function decodeSubscribe(bytes) {
 
 export function encodeDataMessage(subscription, index, points) {
   const includeX = subscription.includeX === true;
+  const xOffset = arguments[3]?.xOffset;
+  const includeXOffset = includeX === false && Number.isFinite(xOffset);
   const bitsPerSample = includeX ? (subscription.xBits + subscription.yBits) : subscription.yBits;
   const writer = new BitWriter(points.length * bitsPerSample);
 
@@ -181,14 +183,21 @@ export function encodeDataMessage(subscription, index, points) {
   }
 
   const payload = writer.bytes;
-  const bytes = new Uint8Array(1 + 4 + 4 + 1 + payload.length);
+  const headerSize = 1 + 4 + 4 + 1 + 1 + (includeXOffset ? 8 : 0);
+  const bytes = new Uint8Array(headerSize + payload.length);
   const view = new DataView(bytes.buffer);
 
   view.setUint8(0, MESSAGE_DATA);
   view.setUint32(1, index, true);
   view.setUint32(5, points.length, true);
   view.setUint8(9, includeX ? 1 : 0);
-  bytes.set(payload, 10);
+  view.setUint8(10, includeXOffset ? 1 : 0);
+  let offset = 11;
+  if (includeXOffset) {
+    view.setFloat64(offset, xOffset, true);
+    offset += 8;
+  }
+  bytes.set(payload, offset);
 
   return bytes;
 }
@@ -203,17 +212,25 @@ export function decodeDataMessage(bytes, subscriptions) {
   const index = view.getUint32(1, true);
   const sampleCount = view.getUint32(5, true);
   const includeX = view.getUint8(9) === 1;
+  const includeXOffset = view.getUint8(10) === 1;
   const subscription = subscriptions[index];
   if (!subscription) {
     throw new Error(`Unknown subscription index: ${index}`);
   }
 
-  const reader = new BitReader(bytes.slice(10));
+  let offset = 11;
+  let xOffset = 0;
+  if (includeXOffset) {
+    xOffset = view.getFloat64(offset, true);
+    offset += 8;
+  }
+
+  const reader = new BitReader(bytes.slice(offset));
   const points = [];
   for (let i = 0; i < sampleCount; i += 1) {
     const x = includeX
       ? dequantize(reader.read(subscription.xBits), subscription.xMin, subscription.xMax, subscription.xBits)
-      : i;
+      : xOffset + i;
     const y = dequantize(reader.read(subscription.yBits), subscription.yMin, subscription.yMax, subscription.yBits);
     points.push({ x, y });
   }
@@ -222,6 +239,8 @@ export function decodeDataMessage(bytes, subscriptions) {
     index,
     key: subscription.key,
     includeX,
+    includeXOffset,
+    xOffset,
     points
   };
 }
