@@ -20,20 +20,21 @@ All values are little endian.
 ## Messages
 
 There are data producers and data consumers. When a consumer connects to a
-producer, it sends a message indicating what data it wants to subscribe to:
+producer, it sends a message for each data series it wants to subscribe to:
 
 ```
 Message type (8 bits) - 0 (SUBSCRIBE)
-nDataItems (32 bits) - uint32
+Subscription id (32 bits) - uint32 controlled by the consumer
 ```
 
-The subscribe message consists of a list of data items the consumer is
-interested in.
+The subscribe message consists of a single data series the consumer is
+interested in. Sending another SUBSCRIBE message with the same subscription id
+replaces the previous subscription for that id.
 
-Data items are identified by ASCII strings, alphanumeric plus dashes and
+Data series are identified by ASCII strings, alphanumeric plus dashes and
 underscores.
 
-Each member of the list has this info:
+Each message has this info:
 
 ```
 Data key length (8 bits) - N (max 255 characters in a key)
@@ -49,14 +50,14 @@ yBits (8 bits) - uint8 number of bits per data value
 ```
 
 When producers send data to consumers, data keys are not returned directly.
-Instead, indices are used, in the same order as the data items are requested
-in the SUBSCRIBE message.
+Instead, the consumer-controlled subscription id from the SUBSCRIBE message is
+used.
 
 Producer data messages have the following format:
 
 ```
 Message type (8 bits) - uint8 1 (DATA)
-Data index (32 bits) - uint32 corresponding to ordinal data key
+Subscription id (32 bits) - uint32 corresponding to client-controlled subscription id
 Sample count (32 bits) - uint32 number of packed samples
 includeX (8 bits) - boolean. indicates if X values are included
 includeXOffset (8 bits) - boolean. indicates if a batch-level x offset is included
@@ -90,8 +91,8 @@ Y samples, and sample i is positioned at i.
 
 When running on HTTP, assume a single long-lived request per consumer. Messages
 are framed by uint32 size. The request will be a single POST, where the body
-consists of the SUBSCRIBE message. We'll assume just the single message for now
-because current browsers/servers don't play nice with streaming requests.
+consists of the SUBSCRIBE messages. We'll assume just the initial messages for
+now because current browsers/servers don't play nice with streaming requests.
 
 
 # Instructions

@@ -1,5 +1,6 @@
 export const MESSAGE_SUBSCRIBE = 0;
 export const MESSAGE_DATA = 1;
+const MAX_UINT32 = 0xffffffff;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -76,18 +77,24 @@ class BitReader {
   }
 }
 
-export function encodeSubscribe(items) {
-  let size = 1 + 4;
-  for (const item of items) {
-    const includeX = item.includeX === true;
-    const keyBytes = textEncoder.encode(item.key);
-    if (keyBytes.length > 255) {
-      throw new RangeError(`Key too long: ${item.key}`);
-    }
-    size += 1 + keyBytes.length + 1 + 8 + 8 + 1;
-    if (includeX) {
-      size += 8 + 8 + 1;
-    }
+function validateUint32(value, name) {
+  if (!Number.isInteger(value) || value < 0 || value > MAX_UINT32) {
+    throw new RangeError(`${name} must be a uint32`);
+  }
+}
+
+export function encodeSubscribe(subscription) {
+  validateUint32(subscription.subscriptionId, "subscriptionId");
+
+  const includeX = subscription.includeX === true;
+  const keyBytes = textEncoder.encode(subscription.key);
+  if (keyBytes.length > 255) {
+    throw new RangeError(`Key too long: ${subscription.key}`);
+  }
+
+  let size = 1 + 4 + 1 + keyBytes.length + 1 + 8 + 8 + 1;
+  if (includeX) {
+    size += 8 + 8 + 1;
   }
 
   const bytes = new Uint8Array(size);
@@ -96,33 +103,28 @@ export function encodeSubscribe(items) {
 
   view.setUint8(offset, MESSAGE_SUBSCRIBE);
   offset += 1;
-  view.setUint32(offset, items.length, true);
+  view.setUint32(offset, subscription.subscriptionId, true);
   offset += 4;
 
-  for (const item of items) {
-    const includeX = item.includeX === true;
-    const keyBytes = textEncoder.encode(item.key);
-    view.setUint8(offset, keyBytes.length);
-    offset += 1;
-    bytes.set(keyBytes, offset);
-    offset += keyBytes.length;
-    view.setUint8(offset, includeX ? 1 : 0);
-    offset += 1;
-    if (includeX) {
-      view.setFloat64(offset, item.xMin, true);
-      offset += 8;
-      view.setFloat64(offset, item.xMax, true);
-      offset += 8;
-      view.setUint8(offset, item.xBits);
-      offset += 1;
-    }
-    view.setFloat64(offset, item.yMin, true);
+  view.setUint8(offset, keyBytes.length);
+  offset += 1;
+  bytes.set(keyBytes, offset);
+  offset += keyBytes.length;
+  view.setUint8(offset, includeX ? 1 : 0);
+  offset += 1;
+  if (includeX) {
+    view.setFloat64(offset, subscription.xMin, true);
     offset += 8;
-    view.setFloat64(offset, item.yMax, true);
+    view.setFloat64(offset, subscription.xMax, true);
     offset += 8;
-    view.setUint8(offset, item.yBits);
+    view.setUint8(offset, subscription.xBits);
     offset += 1;
   }
+  view.setFloat64(offset, subscription.yMin, true);
+  offset += 8;
+  view.setFloat64(offset, subscription.yMax, true);
+  offset += 8;
+  view.setUint8(offset, subscription.yBits);
 
   return bytes;
 }
@@ -137,40 +139,38 @@ export function decodeSubscribe(bytes) {
     throw new Error(`Unexpected subscribe message type: ${type}`);
   }
 
-  const count = view.getUint32(offset, true);
+  const subscriptionId = view.getUint32(offset, true);
   offset += 4;
-  const items = [];
 
-  for (let i = 0; i < count; i += 1) {
-    const keyLength = view.getUint8(offset);
-    offset += 1;
-    const keyBytes = bytes.slice(offset, offset + keyLength);
-    offset += keyLength;
-    const includeX = view.getUint8(offset) === 1;
-    offset += 1;
-    const item = {
-      key: textDecoder.decode(keyBytes),
-      includeX
-    };
-    if (includeX) {
-      item.xMin = view.getFloat64(offset, true);
-      item.xMax = view.getFloat64(offset + 8, true);
-      item.xBits = view.getUint8(offset + 16);
-      offset += 17;
-    }
-    item.yMin = view.getFloat64(offset, true);
-    item.yMax = view.getFloat64(offset + 8, true);
-    item.yBits = view.getUint8(offset + 16);
+  const keyLength = view.getUint8(offset);
+  offset += 1;
+  const keyBytes = bytes.slice(offset, offset + keyLength);
+  offset += keyLength;
+  const includeX = view.getUint8(offset) === 1;
+  offset += 1;
+  const subscription = {
+    subscriptionId,
+    key: textDecoder.decode(keyBytes),
+    includeX
+  };
+  if (includeX) {
+    subscription.xMin = view.getFloat64(offset, true);
+    subscription.xMax = view.getFloat64(offset + 8, true);
+    subscription.xBits = view.getUint8(offset + 16);
     offset += 17;
-    items.push(item);
   }
+  subscription.yMin = view.getFloat64(offset, true);
+  subscription.yMax = view.getFloat64(offset + 8, true);
+  subscription.yBits = view.getUint8(offset + 16);
 
-  return items;
+  return subscription;
 }
 
-export function encodeDataMessage(subscription, index, points) {
+export function encodeDataMessage(subscription, subscriptionId, points, options = {}) {
+  validateUint32(subscriptionId, "subscriptionId");
+
   const includeX = subscription.includeX === true;
-  const xOffset = arguments[3]?.xOffset;
+  const xOffset = options.xOffset;
   const includeXOffset = includeX === false && Number.isFinite(xOffset);
   const bitsPerSample = includeX ? (subscription.xBits + subscription.yBits) : subscription.yBits;
   const writer = new BitWriter(points.length * bitsPerSample);
@@ -188,7 +188,7 @@ export function encodeDataMessage(subscription, index, points) {
   const view = new DataView(bytes.buffer);
 
   view.setUint8(0, MESSAGE_DATA);
-  view.setUint32(1, index, true);
+  view.setUint32(1, subscriptionId, true);
   view.setUint32(5, points.length, true);
   view.setUint8(9, includeX ? 1 : 0);
   view.setUint8(10, includeXOffset ? 1 : 0);
@@ -209,13 +209,15 @@ export function decodeDataMessage(bytes, subscriptions) {
     throw new Error(`Unexpected data message type: ${type}`);
   }
 
-  const index = view.getUint32(1, true);
+  const subscriptionId = view.getUint32(1, true);
   const sampleCount = view.getUint32(5, true);
   const includeX = view.getUint8(9) === 1;
   const includeXOffset = view.getUint8(10) === 1;
-  const subscription = subscriptions[index];
+  const subscription = subscriptions instanceof Map
+    ? subscriptions.get(subscriptionId)
+    : subscriptions[subscriptionId];
   if (!subscription) {
-    throw new Error(`Unknown subscription index: ${index}`);
+    throw new Error(`Unknown subscription id: ${subscriptionId}`);
   }
 
   let offset = 11;
@@ -236,7 +238,7 @@ export function decodeDataMessage(bytes, subscriptions) {
   }
 
   return {
-    index,
+    subscriptionId,
     key: subscription.key,
     includeX,
     includeXOffset,

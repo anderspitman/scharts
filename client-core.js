@@ -1,7 +1,8 @@
 import {
   decodeDataMessage,
   encodeSubscribe,
-  extractFrames
+  extractFrames,
+  frameMessage
 } from "./protocol.js";
 
 function concatBytes(a, b) {
@@ -11,17 +12,33 @@ function concatBytes(a, b) {
   return joined;
 }
 
-export async function streamCharts({ url, items, onMessage, signal }) {
+function concatByteChunks(chunks) {
+  const size = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const joined = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return joined;
+}
+
+function encodeSubscribeMessages(subscriptions) {
+  return concatByteChunks(subscriptions.map((subscription) => frameMessage(encodeSubscribe(subscription))));
+}
+
+export async function streamCharts({ url, subscriptions, onMessage, signal }) {
   const bitrateWindowMs = 1000;
   let bytesReceived = 0;
   let messageCount = 0;
   const bitrateSamples = [];
+  const subscriptionsById = new Map(subscriptions.map((subscription) => [subscription.subscriptionId, subscription]));
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/octet-stream"
     },
-    body: encodeSubscribe(items),
+    body: encodeSubscribeMessages(subscriptions),
     signal
   });
 
@@ -67,7 +84,7 @@ export async function streamCharts({ url, items, onMessage, signal }) {
     for (const frame of extracted.frames) {
       messageCount += 1;
       stats.messageCount = messageCount;
-      onMessage(decodeDataMessage(frame, items));
+      onMessage(decodeDataMessage(frame, subscriptionsById));
     }
 
     if (typeof onMessage === "function") {

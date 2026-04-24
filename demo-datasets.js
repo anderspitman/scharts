@@ -32,6 +32,7 @@ export function createDemoSubscription(key, options = {}) {
 
   const includeX = dataset.mode === "scatter";
   return {
+    subscriptionId: options.subscriptionId,
     key: dataset.key,
     includeX,
     ...(includeX ? {

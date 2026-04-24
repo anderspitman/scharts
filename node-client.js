@@ -9,6 +9,7 @@ const SERIES_COLORS = {
 };
 const subscriptions = [
   createDemoSubscription("alpha", {
+    subscriptionId: 1,
     yBits: 16,
     persistent: true,
     viewXMin: 0,
@@ -17,6 +18,7 @@ const subscriptions = [
     viewYMax: 2
   }),
   createDemoSubscription("clusters", {
+    subscriptionId: 2,
     xBits: 16,
     yBits: 12,
     persistent: true,
@@ -162,10 +164,11 @@ function renderBrailleCanvas(canvas) {
   return lines;
 }
 
-function createRenderer(subscription, mode) {
+function createRenderer(subscription, mode, color) {
   return {
     subscription,
     mode,
+    color,
     canvas: createBrailleCanvas(72, 9),
     maxSeenX: Number.NEGATIVE_INFINITY,
     previousPoint: null
@@ -173,8 +176,8 @@ function createRenderer(subscription, mode) {
 }
 
 const renderers = new Map([
-  ["alpha", createRenderer(subscriptions[0], "line")],
-  ["clusters", createRenderer(subscriptions[1], "scatter")]
+  [subscriptions[0].subscriptionId, createRenderer(subscriptions[0], "line", SERIES_COLORS.alpha)],
+  [subscriptions[1].subscriptionId, createRenderer(subscriptions[1], "scatter", SERIES_COLORS.clusters)]
 ]);
 
 function resetRenderer(renderer) {
@@ -206,13 +209,13 @@ function drawLineBatch(renderer, points) {
     if (index === 0) {
       if (renderer.previousPoint) {
         const previous = projectPoint(renderer.subscription, renderer.canvas, renderer.previousPoint);
-        drawSegment(renderer.canvas, previous.x, previous.y, projected.x, projected.y, SERIES_COLORS.alpha);
+        drawSegment(renderer.canvas, previous.x, previous.y, projected.x, projected.y, renderer.color);
       } else {
-        drawPixel(renderer.canvas, projected.x, projected.y, SERIES_COLORS.alpha);
+        drawPixel(renderer.canvas, projected.x, projected.y, renderer.color);
       }
     } else {
       const previous = projectPoint(renderer.subscription, renderer.canvas, points[index - 1]);
-      drawSegment(renderer.canvas, previous.x, previous.y, projected.x, projected.y, SERIES_COLORS.alpha);
+      drawSegment(renderer.canvas, previous.x, previous.y, projected.x, projected.y, renderer.color);
     }
   });
 
@@ -222,12 +225,12 @@ function drawLineBatch(renderer, points) {
 function drawScatterBatch(renderer, points) {
   points.forEach((point) => {
     const projected = projectPoint(renderer.subscription, renderer.canvas, point);
-    drawPixel(renderer.canvas, projected.x, projected.y, SERIES_COLORS.clusters);
+    drawPixel(renderer.canvas, projected.x, projected.y, renderer.color);
   });
 }
 
-function applyBatch(key, points) {
-  const renderer = renderers.get(key);
+function applyBatch(subscriptionId, points) {
+  const renderer = renderers.get(subscriptionId);
   if (!renderer) {
     return;
   }
@@ -249,12 +252,11 @@ function applyBatch(key, points) {
   }
 }
 
-function renderSection(title, key) {
-  const color = SERIES_COLORS[key];
-  const renderer = renderers.get(key);
+function renderSection(title, subscriptionId) {
+  const renderer = renderers.get(subscriptionId);
   const lines = renderBrailleCanvas(renderer.canvas);
   return [
-    `${color}${title}${ANSI_RESET}`,
+    `${renderer.color}${title}${ANSI_RESET}`,
     ...lines
   ].join("\n");
 }
@@ -266,9 +268,9 @@ function repaint() {
     "scharts node client",
     `/stream ${formatBitrate(lastStats.bitrateBps)} • ${lastStats.bytesReceived} B • ${lastStats.messageCount} messages`,
     "",
-    renderSection("Line", "alpha"),
+    renderSection("Line", subscriptions[0].subscriptionId),
     "",
-    renderSection("Scatter", "clusters"),
+    renderSection("Scatter", subscriptions[1].subscriptionId),
     "\x1b[J"
   ].join("\n");
   process.stdout.write(frame);
@@ -314,7 +316,7 @@ initTerminal();
 
 streamCharts({
   url: process.env.SCHARTS_URL || `http://localhost:${port}/stream`,
-  items: subscriptions,
+  subscriptions,
   onMessage(message, stats) {
     if (stats) {
       lastStats = stats;
@@ -324,7 +326,7 @@ streamCharts({
       return;
     }
 
-    applyBatch(message.key, message.points);
+    applyBatch(message.subscriptionId, message.points);
     scheduleRepaint();
   }
 }).catch((error) => {

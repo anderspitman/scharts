@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createSeriesState, generateSeriesBatch } from "./data.js";
 import { getDemoDataset } from "./demo-datasets.js";
-import { decodeSubscribe, encodeDataMessage, frameMessage } from "./protocol.js";
+import { decodeSubscribe, encodeDataMessage, extractFrames, frameMessage } from "./protocol.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -51,6 +51,9 @@ function serveStatic(pathname, res) {
 }
 
 function validateSubscription(item) {
+  if (!Number.isInteger(item.subscriptionId) || item.subscriptionId < 0 || item.subscriptionId > 0xffffffff) {
+    throw new Error(`Invalid subscription id: ${item.subscriptionId}`);
+  }
   if (!/^[A-Za-z0-9_-]+$/.test(item.key)) {
     throw new Error(`Invalid key: ${item.key}`);
   }
@@ -79,6 +82,24 @@ function collectRequestBody(req) {
   });
 }
 
+function decodeSubscribeMessages(body) {
+  const extracted = extractFrames(new Uint8Array(body));
+  if (extracted.remainder.length > 0) {
+    throw new Error("Incomplete subscribe message");
+  }
+  if (extracted.frames.length === 0) {
+    throw new Error("No subscribe messages");
+  }
+
+  const subscriptions = new Map();
+  for (const frame of extracted.frames) {
+    const subscription = decodeSubscribe(frame);
+    validateSubscription(subscription);
+    subscriptions.set(subscription.subscriptionId, subscription);
+  }
+  return subscriptions;
+}
+
 const sourceStates = new Map();
 const clients = new Set();
 let globalTick = 0;
@@ -99,8 +120,8 @@ function getSourceState(subscription) {
   return state;
 }
 
-function sendSeries(res, subscription, index, batch) {
-  const message = encodeDataMessage(subscription, index, batch.points, {
+function sendSeries(res, subscriptionId, subscription, batch) {
+  const message = encodeDataMessage(subscription, subscriptionId, batch.points, {
     xOffset: batch.xOffset
   });
   res.write(Buffer.from(frameMessage(message)));
@@ -108,12 +129,12 @@ function sendSeries(res, subscription, index, batch) {
 
 function broadcastTick(nextTick) {
   clients.forEach((client) => {
-    client.subscriptions.forEach((subscription, index) => {
+    client.subscriptions.forEach((subscription, subscriptionId) => {
       const state = getSourceState(subscription);
       const dataset = getDemoDataset(subscription.key);
       const sampleCount = DEFAULT_SAMPLE_COUNT;
       const batch = generateSeriesBatch(dataset, state, nextTick, sampleCount);
-      sendSeries(client.res, subscription, index, batch);
+      sendSeries(client.res, subscriptionId, subscription, batch);
     });
   });
   globalTick = nextTick;
@@ -126,8 +147,7 @@ setInterval(() => {
 function streamData(req, res) {
   collectRequestBody(req)
     .then((body) => {
-      const subscriptions = decodeSubscribe(new Uint8Array(body));
-      subscriptions.forEach(validateSubscription);
+      const subscriptions = decodeSubscribeMessages(body);
 
       res.writeHead(200, {
         "content-type": "application/octet-stream",
@@ -142,11 +162,11 @@ function streamData(req, res) {
       };
       clients.add(client);
 
-      subscriptions.forEach((subscription, index) => {
+      subscriptions.forEach((subscription, subscriptionId) => {
         const state = getSourceState(subscription);
         const dataset = getDemoDataset(subscription.key);
         const batch = generateSeriesBatch(dataset, state, globalTick, DEFAULT_SAMPLE_COUNT);
-        sendSeries(res, subscription, index, batch);
+        sendSeries(res, subscriptionId, subscription, batch);
       });
 
       const close = () => {

@@ -5,6 +5,7 @@ import { createDemoSubscription } from "./demo-datasets.js";
 
 const subscriptions = [
   createDemoSubscription("alpha", {
+    subscriptionId: 1,
     yBits: 16,
     persistent: true,
     viewXMin: 0,
@@ -13,6 +14,7 @@ const subscriptions = [
     viewYMax: 2
   }),
   createDemoSubscription("clusters", {
+    subscriptionId: 2,
     xBits: 16,
     yBits: 16,
     persistent: true,
@@ -24,9 +26,10 @@ const subscriptions = [
   })
 ];
 
-const charts = new Map([
-  ["alpha", document.querySelector("schart-line")],
-  ["clusters", document.querySelector("schart-scatter")]
+const subscriptionsById = new Map(subscriptions.map((subscription) => [subscription.subscriptionId, subscription]));
+const chartsById = new Map([
+  [subscriptions[0].subscriptionId, document.querySelector("schart-line")],
+  [subscriptions[1].subscriptionId, document.querySelector("schart-scatter")]
 ]);
 const status = document.querySelector("[data-status]");
 let lastStats = {
@@ -51,7 +54,7 @@ function updateStatus() {
 
 streamCharts({
   url: "/stream",
-  items: subscriptions,
+  subscriptions,
   onMessage(message, stats) {
     if (stats) {
       lastStats = stats;
@@ -61,9 +64,9 @@ streamCharts({
       return;
     }
 
-    const base = subscriptions[message.index];
-    const chart = charts.get(message.key);
-    if (!chart) {
+    const base = subscriptionsById.get(message.subscriptionId);
+    const chart = chartsById.get(message.subscriptionId);
+    if (!base || !chart) {
       return;
     }
 

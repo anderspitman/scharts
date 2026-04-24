@@ -41,6 +41,9 @@ PORT=9000 npm run client:node
 
 ## Notes
 
-- Each subscribe item includes `includeX` as a client-controlled boolean.
-- When `includeX` is omitted or `false`, the subscribe item only needs `key`, `yMin`, `yMax`, and `yBits`.
-- When `includeX` is `true`, the subscribe item must also provide `xMin`, `xMax`, and `xBits`, and the producer includes explicit X samples in each data message.
+- Each `SUBSCRIBE` message describes one data series and includes a client-controlled `subscriptionId`.
+- The initial HTTP request body contains one framed `SUBSCRIBE` message per data series.
+- DATA messages echo `subscriptionId`, so clients route data by their own mapping instead of ordinal request order.
+- Each subscription includes `includeX` as a client-controlled boolean.
+- When `includeX` is omitted or `false`, the subscription only needs `subscriptionId`, `key`, `yMin`, `yMax`, and `yBits`.
+- When `includeX` is `true`, the subscription must also provide `xMin`, `xMax`, and `xBits`, and the producer includes explicit X samples in each data message.
